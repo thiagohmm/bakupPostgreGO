@@ -2,9 +2,6 @@
 package backup
 
 import (
-    "fmt"
-    "os"
-    "reflect"
     "testing"
 
     "github.com/stretchr/testify/require"

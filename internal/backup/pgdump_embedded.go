@@ -1,6 +1,6 @@
 //go:build pg_dump_embedded
 
-package main
+package backup
 
 import "embed"
 
@@ -13,7 +13,7 @@ import "embed"
 //go:embed assets/pg_dump/pg_dump
 var pgDumpFS embed.FS
 
-func embeddedPGDumpBytes() ([]byte, bool) {
+func EmbeddedPGDumpBytes() ([]byte, bool) {
 	b, err := pgDumpFS.ReadFile("assets/pg_dump/pg_dump")
 	if err != nil || len(b) == 0 {
 		return nil, false

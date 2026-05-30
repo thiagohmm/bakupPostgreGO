@@ -1,6 +1,8 @@
 package main
 
 import (
+	"github.thiagohmm.com.br/backupPostgre/internal/backup"
+
 	"bufio"
 	"compress/gzip"
 	"context"
@@ -637,7 +639,7 @@ func preparePGDumpExecutable(cfg Config) (path string, cleanup func(), err error
 	}
 
 	// 2) Se o binário estiver embutido (build tag), extrai e usa.
-	if b, ok := embeddedPGDumpBytes(); ok {
+	if b, ok := backup.EmbeddedPGDumpBytes(); ok {
 		tmpDir, mkErr := os.MkdirTemp("", "backup-postgres-")
 		if mkErr != nil {
 			return "", nil, mkErr
@@ -667,7 +669,7 @@ func preparePGDumpAllExecutable(cfg Config) (path string, cleanup func(), err er
 		return cfg.PGDumpAllPath, nil, nil
 	}
 
-	if b, ok := embeddedPGDumpAllBytes(); ok {
+	if b, ok := backup.EmbeddedPGDumpAllBytes(); ok {
 		tmpDir, mkErr := os.MkdirTemp("", "backup-postgres-")
 		if mkErr != nil {
 			return "", nil, mkErr
