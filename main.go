@@ -1,9 +1,10 @@
 package main
 
 import (
+	"github.thiagohmm.com.br/backupPostgre/internal/config"
+
 	"github.thiagohmm.com.br/backupPostgre/internal/backup"
 
-	"bufio"
 	"compress/gzip"
 	"context"
 	"errors"
@@ -22,39 +23,15 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-type Config struct {
-	EnvFile string
-
-	PGDumpPath string
-	PGDumpAllPath string
-
-	PGHost     string
-	PGPort     string
-	PGDatabase string
-	PGUser     string
-	PGPassword string
-
-	BackupDir    string
-	BackupPrefix string
-	Compress     string // gzip|none
-
-	SCPDest         string
-	SCPPort         int
-	SCPIdentityFile string
-
-	SSHUser     string
-	SSHPassword string
-}
-
 func main() {
-	cfg := Config{}
+	cfg := config.Config{}
 	root := buildRootCmd(&cfg)
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
 	}
 }
 
-func buildRootCmd(cfg *Config) *cobra.Command {
+func buildRootCmd(cfg *config.Config) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "backup-postgres",
 		Short: "Backup SQL do PostgreSQL e envio via scp",
@@ -72,19 +49,19 @@ Opcionalmente, use --env para carregar um arquivo .env.`,
 	return cmd
 }
 
-func buildRunCmd(cfg *Config) *cobra.Command {
+func buildRunCmd(cfg *config.Config) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "run",
 		Short: "Backup de uma database (pg_dump) e envia via scp",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if cfg.EnvFile != "" {
-				if err := loadDotEnv(cfg.EnvFile); err != nil {
+				if err := config.LoadDotEnv(cfg.EnvFile); err != nil {
 					return fmt.Errorf("falha ao carregar --env: %w", err)
 				}
 			}
 
-			merged := mergeWithEnvDefaults(*cfg)
-			if err := validateConfigSingleDB(merged); err != nil {
+			merged := config.MergeWithEnvDefaults(*cfg)
+			if err := config.ValidateConfigSingleDB(merged); err != nil {
 				return err
 			}
 
@@ -144,19 +121,19 @@ func buildRunCmd(cfg *Config) *cobra.Command {
 	return cmd
 }
 
-func buildRunAllCmd(cfg *Config) *cobra.Command {
+func buildRunAllCmd(cfg *config.Config) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "run-all",
 		Short: "Backup de todas as databases (pg_dumpall) e envia via scp",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if cfg.EnvFile != "" {
-				if err := loadDotEnv(cfg.EnvFile); err != nil {
+				if err := config.LoadDotEnv(cfg.EnvFile); err != nil {
 					return fmt.Errorf("falha ao carregar --env: %w", err)
 				}
 			}
 
-			merged := mergeWithEnvDefaults(*cfg)
-			if err := validateConfigAllDBs(merged); err != nil {
+			merged := config.MergeWithEnvDefaults(*cfg)
+			if err := config.ValidateConfigAllDBs(merged); err != nil {
 				return err
 			}
 
@@ -215,106 +192,7 @@ func buildRunAllCmd(cfg *Config) *cobra.Command {
 	return cmd
 }
 
-func mergeWithEnvDefaults(cfg Config) Config {
-	get := func(k string) string { return strings.TrimSpace(os.Getenv(k)) }
-
-	if cfg.PGDumpPath == "" {
-		cfg.PGDumpPath = get("PG_DUMP_PATH")
-	}
-	if cfg.PGDumpAllPath == "" {
-		cfg.PGDumpAllPath = get("PG_DUMPALL_PATH")
-	}
-	if cfg.PGHost == "" {
-		cfg.PGHost = get("PGHOST")
-	}
-	if cfg.PGPort == "" {
-		cfg.PGPort = firstNonEmpty(get("PGPORT"), "5432")
-	}
-	if cfg.PGDatabase == "" {
-		cfg.PGDatabase = get("PGDATABASE")
-	}
-	if cfg.PGUser == "" {
-		cfg.PGUser = get("PGUSER")
-	}
-	if cfg.PGPassword == "" {
-		cfg.PGPassword = get("PGPASSWORD")
-	}
-	if cfg.BackupDir == "" {
-		cfg.BackupDir = firstNonEmpty(get("BACKUP_DIR"), "./backups")
-	}
-	if cfg.BackupPrefix == "" {
-		cfg.BackupPrefix = firstNonEmpty(get("BACKUP_PREFIX"), "pg_backup")
-	}
-	if cfg.Compress == "" {
-		cfg.Compress = firstNonEmpty(get("COMPRESS"), "gzip")
-	}
-	if cfg.SCPDest == "" {
-		cfg.SCPDest = get("SCP_DEST")
-	}
-	if cfg.SCPPort == 0 {
-		p, err := strconv.Atoi(firstNonEmpty(get("SCP_PORT"), "22"))
-		if err == nil {
-			cfg.SCPPort = p
-		}
-	}
-	if cfg.SCPIdentityFile == "" {
-		cfg.SCPIdentityFile = get("SCP_IDENTITY_FILE")
-	}
-	if cfg.SSHUser == "" {
-		cfg.SSHUser = get("SSH_USER")
-	}
-	if cfg.SSHPassword == "" {
-		cfg.SSHPassword = get("SSH_PASSWORD")
-	}
-
-	return cfg
-}
-
-func validateCommon(cfg Config) error {
-	if cfg.PGHost == "" || cfg.PGUser == "" {
-		return errors.New("faltam flags/variáveis obrigatórias do Postgres: --pg-host/PGHOST, --pg-user/PGUSER")
-	}
-	if cfg.PGPort == "" {
-		cfg.PGPort = "5432"
-	}
-	if cfg.BackupDir == "" {
-		cfg.BackupDir = "./backups"
-	}
-	if cfg.BackupPrefix == "" {
-		cfg.BackupPrefix = "pg_backup"
-	}
-	if cfg.Compress == "" {
-		cfg.Compress = "gzip"
-	}
-	if cfg.SCPPort <= 0 {
-		cfg.SCPPort = 22
-	}
-	switch cfg.Compress {
-	case "gzip", "none":
-	default:
-		return fmt.Errorf("compress inválido: %q (use gzip|none)", cfg.Compress)
-	}
-	return nil
-}
-
-func validateConfigSingleDB(cfg Config) error {
-	if err := validateCommon(cfg); err != nil {
-		return err
-	}
-	if strings.TrimSpace(cfg.PGDatabase) == "" {
-		return errors.New("falta database: --pg-db/PGDATABASE (para todas as databases use o comando run-all)")
-	}
-	return nil
-}
-
-func validateConfigAllDBs(cfg Config) error {
-	if err := validateCommon(cfg); err != nil {
-		return err
-	}
-	return nil
-}
-
-func runBackup(ctx context.Context, cfg Config, pgDumpExec string) (string, error) {
+func runBackup(ctx context.Context, cfg config.Config, pgDumpExec string) (string, error) {
 	if err := os.MkdirAll(cfg.BackupDir, 0o755); err != nil {
 		return "", err
 	}
@@ -371,7 +249,7 @@ func runBackup(ctx context.Context, cfg Config, pgDumpExec string) (string, erro
 	}
 }
 
-func runBackupAll(ctx context.Context, cfg Config, pgDumpAllExec string) (string, error) {
+func runBackupAll(ctx context.Context, cfg config.Config, pgDumpAllExec string) (string, error) {
 	if err := os.MkdirAll(cfg.BackupDir, 0o755); err != nil {
 		return "", err
 	}
@@ -422,7 +300,7 @@ func runBackupAll(ctx context.Context, cfg Config, pgDumpAllExec string) (string
 	}
 }
 
-func runSCP(ctx context.Context, cfg Config, archivePath string) error {
+func runSCP(ctx context.Context, cfg config.Config, archivePath string) error {
 	if strings.TrimSpace(cfg.SCPDest) == "" {
 		return nil
 	}
@@ -483,7 +361,7 @@ func parseSCPDest(dest string, fallbackUser string) (remoteSpec, error) {
 	return remoteSpec{User: user, Host: host, Path: remotePath}, nil
 }
 
-func uploadViaSFTP(ctx context.Context, cfg Config, localPath string) error {
+func uploadViaSFTP(ctx context.Context, cfg config.Config, localPath string) error {
 	rs, err := parseSCPDest(cfg.SCPDest, cfg.SSHUser)
 	if err != nil {
 		return err
@@ -589,39 +467,6 @@ func withOptionalPasswordEnv(pw string) []string {
 	return []string{"PGPASSWORD=" + pw}
 }
 
-func loadDotEnv(path string) error {
-	f, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		if strings.HasPrefix(line, "export ") {
-			line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
-		}
-		k, v, ok := strings.Cut(line, "=")
-		if !ok {
-			continue
-		}
-		k = strings.TrimSpace(k)
-		v = strings.TrimSpace(v)
-		if k == "" {
-			continue
-		}
-		v = strings.Trim(v, `"'`)
-		if err := os.Setenv(k, v); err != nil {
-			return err
-		}
-	}
-	return sc.Err()
-}
-
 func requireCmd(name string) error {
 	if _, err := exec.LookPath(name); err != nil {
 		return fmt.Errorf("comando %q não encontrado no PATH", name)
@@ -629,7 +474,7 @@ func requireCmd(name string) error {
 	return nil
 }
 
-func preparePGDumpExecutable(cfg Config) (path string, cleanup func(), err error) {
+func preparePGDumpExecutable(cfg config.Config) (path string, cleanup func(), err error) {
 	// 1) Se usuário informou um caminho, valida e usa.
 	if strings.TrimSpace(cfg.PGDumpPath) != "" {
 		if _, statErr := os.Stat(cfg.PGDumpPath); statErr != nil {
@@ -661,7 +506,7 @@ func preparePGDumpExecutable(cfg Config) (path string, cleanup func(), err error
 	return p, nil, nil
 }
 
-func preparePGDumpAllExecutable(cfg Config) (path string, cleanup func(), err error) {
+func preparePGDumpAllExecutable(cfg config.Config) (path string, cleanup func(), err error) {
 	if strings.TrimSpace(cfg.PGDumpAllPath) != "" {
 		if _, statErr := os.Stat(cfg.PGDumpAllPath); statErr != nil {
 			return "", nil, fmt.Errorf("pg_dumpall não encontrado em --pg-dumpall: %w", statErr)
@@ -690,15 +535,7 @@ func preparePGDumpAllExecutable(cfg Config) (path string, cleanup func(), err er
 	return p, nil, nil
 }
 
-func firstNonEmpty(v, fallback string) string {
-	if strings.TrimSpace(v) == "" {
-		return fallback
-	}
-	return v
-}
-
 func fatalf(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, format+"\n", args...)
 	os.Exit(1)
 }
-
