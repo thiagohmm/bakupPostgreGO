@@ -1,0 +1,3 @@
+- [x] Ajustar testes de `internal/backup/pgdump_test.go` para evitar dependência de binários inválidos em `testdata/bin`
+- [ ] Executar `go test ./...` para validar correção final
+- [x] Atualizar este TODO com progresso concluído

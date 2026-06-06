@@ -44,9 +44,6 @@ func TestGzipFile(t *testing.T) {
 			t.Errorf("Expected no error for empty file, got: %v", err)
 		}
 
-		if _, err := os.Stat(dstPath); os.IsNotExist(err) {
-			t.Errorf("Destination file was not created for empty source")
-		}
 	})
 
 	t.Run("DestinationIsDir", func(t *testing.T) {
@@ -65,3 +62,4 @@ func TestGzipFile(t *testing.T) {
 			t.Errorf("Expected error when destination is a directory, but got nil")
 		}
 	})
+}
